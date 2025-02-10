@@ -7,6 +7,79 @@
 #include <arpa/inet.h>
 #include <sys/socket.h>
 #include <netinet/ip.h>
+#include <assert.h>
+
+const size_t k_max_msg = 4096;
+
+static int32_t read_full(int fd, char *buf, size_t n) {
+    while (n > 0) {
+        ssize_t rv = read(fd, buf, n);
+        if (rv <= 0) {
+            return -1;  // error, or unexpected EOF
+        }
+        assert((size_t)rv <= n);
+        n -= (size_t)rv;
+        buf += rv;
+    }
+    return 0;
+}
+
+static int32_t write_all(int fd, const char *buf, size_t n) {
+    while (n > 0) {
+        ssize_t rv = write(fd, buf, n);
+        if (rv <= 0) {
+            return -1;  // error
+        }
+        assert((size_t)rv <= n);
+        n -= (size_t)rv;
+        buf += rv;
+    }
+    return 0;
+}
+
+static void msg(const char *msg) {
+    fprintf(stderr, "%s\n", msg);
+}
+
+
+static int32_t query(int fd, const char *text) {
+    uint32_t length = (uint32_t)strlen(text);
+    if (length > k_max_msg) {
+        return -1;
+    }
+
+    char write_buffer[4 + k_max_msg];
+    memcpy(write_buffer, &length, 4);
+    memcpy(&write_buffer[4], text, length);
+    int32_t err = write_all(fd, write_buffer, 4 + length);
+    if(err) {
+        return err;
+    }
+
+    char read_buffer[4 + k_max_msg + 1];
+    errno = 0;
+    err = read_full(fd, read_buffer, 4);
+    if (err) {
+        msg(errno == 0 ? "EOF" : "read() error");
+        return err;
+    }
+
+    memcpy(&length, read_buffer, 4);
+    if (length > k_max_msg) {
+        msg("too long");
+        return -1;
+    }
+
+    err = read_full(fd, &read_buffer[4], length);
+    if (err) {
+        msg("read() error");
+        return err;
+    }
+
+    // do something
+    printf("server says: %.*s\n", length, &read_buffer[4]);
+    return 0;
+}
 
 static void die(const char *msg) {
     int err = errno;
@@ -29,15 +102,15 @@ int main() {
         die("connect()");
     }
 
-    char message[] = "hello";
-    write(fd, message, strlen(message));
-    char readbuf[64] = {};
-    ssize_t n = read(fd, readbuf, sizeof(readbuf) - 1);
-    if(n < 0) {
-        die("read()");
+    int32_t err = query(fd, "hello1");
+    if (err) {
+        goto L_DONE;
     }
-    printf("Server says %s\n", readbuf);
+    err = query(fd, "hello2");
+    if (err) {
+        goto L_DONE;
+    }
+L_DONE:
     close(fd);
-
     return 0;
 }
