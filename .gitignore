@@ -54,3 +54,4 @@ dkms.conf
 # unix executables to avoid
 server/
 client/
+.DS_Store
