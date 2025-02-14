@@ -2,9 +2,9 @@ CC = gcc
 
 CFLAGS = -Wall -g
 
-TARGET = server
+TARGET = client
 
-SRCS = server.c buffer.c connection.c connectionvector.c pollfdvector.c 
+SRCS = client.c 
 
 OBJS = $(SRCS:.c=.o)
 

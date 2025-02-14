@@ -1,4 +1,5 @@
 #include "connectionvector.h"
+#include "connection.h"
 
 ConnectionVector initConnectionVector()
 {

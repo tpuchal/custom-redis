@@ -15,7 +15,7 @@ static int32_t read_full(int fd, char *buf, size_t n) {
     while (n > 0) {
         ssize_t rv = read(fd, buf, n);
         if (rv <= 0) {
-            return -1;  // error, or unexpected EOF
+            return -1;
         }
         assert((size_t)rv <= n);
         n -= (size_t)rv;
@@ -28,7 +28,7 @@ static int32_t write_all(int fd, const char *buf, size_t n) {
     while (n > 0) {
         ssize_t rv = write(fd, buf, n);
         if (rv <= 0) {
-            return -1;  // error
+            return -1;
         }
         assert((size_t)rv <= n);
         n -= (size_t)rv;
@@ -56,7 +56,7 @@ static int32_t query(int fd, const char *text) {
         return err;
     }
 
-    char read_buffer[4 + k_max_msg + 1];
+    char read_buffer[k_max_msg];
     errno = 0;
     err = read_full(fd, read_buffer, 4);
     if (err) {
@@ -64,7 +64,7 @@ static int32_t query(int fd, const char *text) {
         return err;
     }
 
-    memcpy(&length, read_buffer, 4);
+
     if (length > k_max_msg) {
         msg("too long");
         return -1;
@@ -76,7 +76,6 @@ static int32_t query(int fd, const char *text) {
         return err;
     }
 
-    // do something
     printf("server says: %.*s\n", length, &read_buffer[4]);
     return 0;
 }
@@ -102,7 +101,8 @@ int main() {
         die("connect()");
     }
 
-    int32_t err = query(fd, "hello1");
+    for(int i = 0 ; i < 100000 ; i++) {
+        int32_t err = query(fd, "veryverylonghello");
     if (err) {
         goto L_DONE;
     }
@@ -110,6 +110,8 @@ int main() {
     if (err) {
         goto L_DONE;
     }
+    }
+    
 L_DONE:
     close(fd);
     return 0;

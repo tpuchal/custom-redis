@@ -9,7 +9,7 @@
 #include <arpa/inet.h>
 #include <sys/socket.h>
 #include <netinet/ip.h>
-#include "uint8tvector.h"
+#include "buffer.h"
 #include "connection.h"
 #include "pollfdvector.h"
 #include "connectionvector.h"
@@ -54,15 +54,6 @@ static void fd_set_nb(int fd)
 
 const size_t k_max_msg = 32 << 20;
 
-static void consumeBuffer(uint8TVector *buffer, size_t n)
-{
-    for (size_t i = 0; i < n; i++)
-    {
-        eraseFromVector(buffer, 0);
-    }
-    buffer->size = 0;
-}
-
 static Connection *handle_accept(int fd)
 {
     struct sockaddr_in client_addr = {};
@@ -83,45 +74,57 @@ static Connection *handle_accept(int fd)
     Connection *conn = malloc(sizeof(Connection));
     conn->fd = connfd;
     conn->want_read = true;
-    initVector(&conn->incoming);
-    initVector(&conn->outgoing);
+
+    initBuffer(&conn->incoming_buffer);
+    initBuffer(&conn->outgoing_buffer);
     return conn;
 }
 
 static bool try_one_request(Connection *conn)
 {
-    if (conn->incoming.size < 4)
+    size_t incomming_buffer_size = conn->incoming_buffer.data_end - conn->incoming_buffer.data_begin;
+    if (incomming_buffer_size < 4)
     {
         return false;
     }
     uint32_t len = 0;
-    memcpy(&len, conn->incoming.array, 4);
+    memcpy(&len, conn->incoming_buffer.data_begin, 4);
     if (len > k_max_msg)
     {
         msg("too long");
         conn->want_close = true;
         return false;
     }
-    if (4 + len > conn->incoming.size)
+    if (4 + len > incomming_buffer_size)
     {
         return false;
     }
-    const uint8_t *request = &conn->incoming.array[4];
+    const uint8_t *request = &conn->incoming_buffer.data_begin[4];
 
     printf("client says: len:%d data:%.*s\n",
            len, len < 100 ? len : 100, request);
 
-    appendToVector(&conn->outgoing, (const uint8_t *)&len, 4);
-    appendToVector(&conn->outgoing, request, len);
+    appendToNewBuffer(&conn->outgoing_buffer, (const uint8_t *)&len, 4);
+    appendToNewBuffer(&conn->outgoing_buffer, request, len);
 
-    consumeBuffer(&conn->incoming, 4 + len);
+
+
+    consumeNewBuffer(&conn->incoming_buffer, 4 + len);
+    // consumeBuffer(&conn->incoming, 4 + len);
     return true;
 }
 
 static void handle_write(Connection *conn)
 {
-    assert(conn->outgoing.size > 0);
-    ssize_t rv = write(conn->fd, &conn->outgoing.array[0], conn->outgoing.size);
+    size_t outgoing_buffer_size = conn->outgoing_buffer.data_end - conn->outgoing_buffer.data_begin;
+    if (outgoing_buffer_size == 0)
+    {
+        // No data to write; update flags and return.
+        conn->want_read = true;
+        conn->want_write = false;
+        return;
+    }
+    ssize_t rv = write(conn->fd, conn->outgoing_buffer.data_begin, outgoing_buffer_size);
     if (rv < 0 && errno == EAGAIN)
     {
         return;
@@ -133,10 +136,11 @@ static void handle_write(Connection *conn)
         return;
     }
 
-    consumeBuffer(&conn->outgoing, (size_t)rv);
+    consumeNewBuffer(&conn->outgoing_buffer, (size_t)rv);
+    // consumeBuffer(&conn->outgoing, (size_t)rv);
 
-    if (conn->outgoing.size == 0)
-    { 
+    if (outgoing_buffer_size == 0)
+    {
         conn->want_read = true;
         conn->want_write = false;
     }
@@ -146,6 +150,7 @@ static void handle_read(Connection *conn)
 {
     uint8_t buf[64 * 1024];
     ssize_t rv = read(conn->fd, buf, sizeof(buf));
+    size_t incomming_buffer_size = conn->incoming_buffer.data_end - conn->incoming_buffer.data_begin;
     if (rv < 0 && errno == EAGAIN)
     {
         return;
@@ -158,7 +163,7 @@ static void handle_read(Connection *conn)
     }
     if (rv == 0)
     {
-        if (conn->incoming.size == 0)
+        if (incomming_buffer_size == 0)
         {
             msg("client closed");
         }
@@ -169,13 +174,16 @@ static void handle_read(Connection *conn)
         conn->want_close = true;
         return;
     }
-    appendToVector(&conn->incoming, buf, (size_t)rv);
+
+    appendToNewBuffer(&conn->incoming_buffer,buf, (size_t)rv);
+    // appendToVector(&conn->incoming, buf, (size_t)rv);
 
     while (try_one_request(conn))
     {
     }
 
-    if (conn->outgoing.size > 0)
+    size_t outgoing_buffer_size = conn->outgoing_buffer.data_end - conn->outgoing_buffer.data_begin;
+    if (outgoing_buffer_size > 0)
     {
         conn->want_read = false;
         conn->want_write = true;

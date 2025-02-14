@@ -1,6 +1,6 @@
 #ifndef CONNECTION_HEADER
 #define CONNECTION_HEADER
-#include "uint8tvector.h"
+#include "buffer.h"
 
 typedef struct
 {
@@ -8,8 +8,8 @@ typedef struct
     bool want_read;
     bool want_write;
     bool want_close;
-    uint8TVector incoming;
-    uint8TVector outgoing;
+    Buffer incoming_buffer;
+    Buffer outgoing_buffer;
 } Connection;
 
 Connection initConnection();
