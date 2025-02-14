@@ -13,6 +13,7 @@
 #include "connection.h"
 #include "pollfdvector.h"
 #include "connectionvector.h"
+#include <sys/time.h>
 
 #define INITIAL_CAPACITY 4
 
@@ -107,10 +108,7 @@ static bool try_one_request(Connection *conn)
     appendToNewBuffer(&conn->outgoing_buffer, (const uint8_t *)&len, 4);
     appendToNewBuffer(&conn->outgoing_buffer, request, len);
 
-
-
     consumeNewBuffer(&conn->incoming_buffer, 4 + len);
-    // consumeBuffer(&conn->incoming, 4 + len);
     return true;
 }
 
@@ -119,7 +117,6 @@ static void handle_write(Connection *conn)
     size_t outgoing_buffer_size = conn->outgoing_buffer.data_end - conn->outgoing_buffer.data_begin;
     if (outgoing_buffer_size == 0)
     {
-        // No data to write; update flags and return.
         conn->want_read = true;
         conn->want_write = false;
         return;
@@ -137,7 +134,6 @@ static void handle_write(Connection *conn)
     }
 
     consumeNewBuffer(&conn->outgoing_buffer, (size_t)rv);
-    // consumeBuffer(&conn->outgoing, (size_t)rv);
 
     if (outgoing_buffer_size == 0)
     {
@@ -148,6 +144,8 @@ static void handle_write(Connection *conn)
 
 static void handle_read(Connection *conn)
 {
+    struct timeval start, end;
+    gettimeofday(&start, NULL);
     uint8_t buf[64 * 1024];
     ssize_t rv = read(conn->fd, buf, sizeof(buf));
     size_t incomming_buffer_size = conn->incoming_buffer.data_end - conn->incoming_buffer.data_begin;
@@ -175,8 +173,7 @@ static void handle_read(Connection *conn)
         return;
     }
 
-    appendToNewBuffer(&conn->incoming_buffer,buf, (size_t)rv);
-    // appendToVector(&conn->incoming, buf, (size_t)rv);
+    appendToNewBuffer(&conn->incoming_buffer, buf, (size_t)rv);
 
     while (try_one_request(conn))
     {
@@ -187,12 +184,19 @@ static void handle_read(Connection *conn)
     {
         conn->want_read = false;
         conn->want_write = true;
+        gettimeofday(&end, NULL);
+        double time_taken = (end.tv_sec - start.tv_sec) * 1e6;
+        time_taken = (time_taken + (end.tv_usec - start.tv_usec)) / 1e6;
+
+
+        printf("Request processed in %.6f seconds\n", time_taken);
         return handle_write(conn);
     }
 }
 
 int main()
 {
+
     int fd = socket(AF_INET, SOCK_STREAM, 0);
     if (fd < 0)
     {
