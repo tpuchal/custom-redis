@@ -149,6 +149,32 @@ static void handle_read(Connection *conn)
     uint8_t buf[64 * 1024];
     ssize_t rv = read(conn->fd, buf, sizeof(buf));
     size_t incomming_buffer_size = conn->incoming_buffer.data_end - conn->incoming_buffer.data_begin;
+
+    // consume total length of all requests
+    //  divide outputbuffer into requests
+    //  while (outgoing_buffer_size > 0)
+    //  {
+    //      for (int j = 0; j < 4; j++)
+    //      {
+    //          conn->outgoing_buffer.data_begin++;
+    //          outgoing_buffer_size--;
+    //      }
+
+    //     uint8_t message_length = 0;
+    //     memcpy(&message_length, conn->outgoing_buffer.data_begin, 1);
+    //     conn->outgoing_buffer.data_begin++;
+    //     outgoing_buffer_size--;
+    //     int int_val = message_length - 48;
+
+    //     printf("Message: ");
+    //     for (int j = 0; j < int_val; j++)
+    //     {
+    //         printf("%c", *conn->outgoing_buffer.data_begin++);
+    //         outgoing_buffer_size--;
+    //     }
+    //     printf("\n");
+    // }
+
     if (rv < 0 && errno == EAGAIN)
     {
         return;
@@ -173,13 +199,40 @@ static void handle_read(Connection *conn)
         return;
     }
 
+    // get the total message size and consume it
     appendToNewBuffer(&conn->incoming_buffer, buf, (size_t)rv);
+    uint32_t total_message_size = 0;
+    memcpy(&total_message_size, conn->incoming_buffer.buffer_begin, 4);
+    consumeNewBuffer(&conn->incoming_buffer, 4);
 
-    while (try_one_request(conn))
+    incomming_buffer_size = conn->incoming_buffer.data_end - conn->incoming_buffer.data_begin;
+    while (incomming_buffer_size > 0)
     {
+        uint8_t message_length = 0;
+        memcpy(&message_length, conn->incoming_buffer.data_begin, 1);
+        consumeNewBuffer(&conn->incoming_buffer, 1);
+        int conversion = message_length - 48;
+        assert(conversion > 0);
+
+        uint8_t message[conversion];
+        for (int i = 0; i < conversion; i++)
+        {
+            message[i] = conn->incoming_buffer.data_begin[0];
+            consumeNewBuffer(&conn->incoming_buffer, 1);
+        }
+
+        printf("client says: len:%d data:%.*s\n", conversion, conversion < 100 ? conversion : 100, message);
+        incomming_buffer_size = conn->incoming_buffer.data_end - conn->incoming_buffer.data_begin;
+        appendToNewBuffer(&conn->outgoing_buffer, message_length, 1);
+        appendToNewBuffer(&conn->outgoing_buffer, message, conversion);
+
     }
 
-    size_t outgoing_buffer_size = conn->outgoing_buffer.data_end - conn->outgoing_buffer.data_begin;
+    // while (try_one_request(conn))
+    // {
+    // }
+
+    size_t outgoing_buffer_size = &conn->outgoing_buffer.data_end - &conn->outgoing_buffer.data_begin;
     if (outgoing_buffer_size > 0)
     {
         conn->want_read = false;
@@ -187,7 +240,6 @@ static void handle_read(Connection *conn)
         gettimeofday(&end, NULL);
         double time_taken = (end.tv_sec - start.tv_sec) * 1e6;
         time_taken = (time_taken + (end.tv_usec - start.tv_usec)) / 1e6;
-
 
         printf("Request processed in %.6f seconds\n", time_taken);
         return handle_write(conn);

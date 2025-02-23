@@ -101,15 +101,9 @@ int main() {
         die("connect()");
     }
 
-    for(int i = 0 ; i < 100000 ; i++) {
-        int32_t err = query(fd, "veryverylonghello");
+        int32_t err = query(fd, "1a4halo6siemka");
     if (err) {
         goto L_DONE;
-    }
-    err = query(fd, "hello2");
-    if (err) {
-        goto L_DONE;
-    }
     }
     
 L_DONE:

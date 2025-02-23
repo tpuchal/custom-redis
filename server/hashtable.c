@@ -22,6 +22,8 @@ int insertIntoHashTable(Node* node, HashTable* table) {
 int deleteFromHashTable(uint8_t* key, HashTable* table) {
     size_t index = getIndex(key);
     table->values[0] = NULL;
+
+    return 0;
 }
 
 bool init_hash_table(HashTable* hashTable) {
@@ -29,5 +31,7 @@ bool init_hash_table(HashTable* hashTable) {
     node.value = (uint8_t*)malloc(MAX_MSG_SIZE*sizeof(uint8_t));
     hashTable->size = TABLE_SIZE;
     hashTable->values = (Node* )malloc(TABLE_SIZE * sizeof(node));
+
+    return true;
     
 }
