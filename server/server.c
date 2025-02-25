@@ -53,7 +53,7 @@ static void fd_set_nb(int fd)
 
 const size_t k_max_msg = 32 << 20;
 
-static Connection *handle_accept(int fd)
+static void handle_accept(int fd, ConnectionVector *fd2conn)
 {
     struct sockaddr_in client_addr = {};
     socklen_t socklen = sizeof(client_addr);
@@ -61,7 +61,7 @@ static Connection *handle_accept(int fd)
     if (connfd < 0)
     {
         msg_errno("accept() error");
-        return NULL;
+        return;
     }
     uint32_t ip = client_addr.sin_addr.s_addr;
     fprintf(stderr, "new client from %u.%u.%u.%u:%u\n",
@@ -70,13 +70,18 @@ static Connection *handle_accept(int fd)
 
     fd_set_nb(connfd);
 
-    Connection *conn = malloc(sizeof(Connection));
+    if (fd2conn->size <= (size_t)connfd)
+    {
+        resizeConnectionVector(fd2conn, connfd + 1, 0);
+    }
+    
+    Connection *conn = &fd2conn->array[connfd];
     conn->fd = connfd;
     conn->want_read = true;
-
+    conn->want_write = false;
+    conn->want_close = false;
     initBuffer(&conn->incoming_buffer);
     initBuffer(&conn->outgoing_buffer);
-    return conn;
 }
 
 static bool try_one_request(Connection *conn)
@@ -267,18 +272,7 @@ int main()
 
         if (poll_args.array[0].revents)
         {
-            Connection *conn = handle_accept(fd);
-
-            if (conn)
-            {
-                if (fd2conn.size <= (size_t)conn->fd)
-                {
-                    resizeConnectionVector(&fd2conn, conn->fd + 1, 0);
-                }
-                assert(&fd2conn.array[conn->fd] != NULL);
-
-                fd2conn.array[conn->fd] = *conn;
-            }
+            handle_accept(fd, &fd2conn);
         }
 
         for (size_t i = 1; i < poll_args.size; ++i)
@@ -303,8 +297,6 @@ int main()
 
             if ((ready & POLLERR) || conn->want_close)
             {
-                (void)close(conn->fd);
-                fd2conn.array[conn->fd] = emptyConnection();
                 freeConnection(conn);
             }
         }

@@ -2,6 +2,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <sys/errno.h>
+#include <stdlib.h>
 
 bool consumeNewBuffer(Buffer *buffer, size_t data_size)
 {
@@ -38,9 +39,25 @@ bool appendToNewBuffer(Buffer *buffer, const uint8_t *data, size_t data_size)
 
 void initBuffer(Buffer *buffer)
 {
-    uint8_t buffer_size[MAX_BUFFER_SIZE];
-    buffer->buffer_begin = buffer_size;
-    buffer->buffer_end = buffer_size + sizeof(buffer_size);
-    buffer->data_begin = buffer_size;
-    buffer->data_end = buffer_size;
+    buffer->buffer_begin = (uint8_t *)malloc(MAX_BUFFER_SIZE);
+    if (!buffer->buffer_begin) {
+        fprintf(stderr, "Failed to allocate buffer memory\n");
+        buffer->buffer_end = NULL;
+        buffer->data_begin = NULL;
+        buffer->data_end = NULL;
+        return;
+    }
+    buffer->buffer_end = buffer->buffer_begin + MAX_BUFFER_SIZE;
+    buffer->data_begin = buffer->buffer_begin;
+    buffer->data_end = buffer->buffer_begin;
+}
+
+void freeBuffer(Buffer *buffer) {
+    if (buffer->buffer_begin) {
+        free(buffer->buffer_begin);
+        buffer->buffer_begin = NULL;
+        buffer->buffer_end = NULL;
+        buffer->data_begin = NULL;
+        buffer->data_end = NULL;
+    }
 }

@@ -19,4 +19,6 @@ bool appendToNewBuffer(Buffer *buffer, const uint8_t *data, size_t data_size);
 
 void initBuffer(Buffer* buffer);
 
+void freeBuffer(Buffer *buffer);
+
 #endif
