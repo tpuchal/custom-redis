@@ -15,6 +15,8 @@
 #include "connectionvector.h"
 #include <sys/time.h>
 
+const uint32_t BULK_REQUEST_MARKER = 0xFFFFFFFF;
+
 static void msg(const char *msg)
 {
     fprintf(stderr, "%s\n", msg);
@@ -74,7 +76,7 @@ static void handle_accept(int fd, ConnectionVector *fd2conn)
     {
         resizeConnectionVector(fd2conn, connfd + 1, 0);
     }
-    
+
     Connection *conn = &fd2conn->array[connfd];
     conn->fd = connfd;
     conn->want_read = true;
@@ -84,25 +86,107 @@ static void handle_accept(int fd, ConnectionVector *fd2conn)
     initBuffer(&conn->outgoing_buffer);
 }
 
-static bool try_one_request(Connection *conn)
+// Helper function to process individual requests within a bulk
+static bool process_individual_request(Connection *conn)
 {
-    size_t incomming_buffer_size = conn->incoming_buffer.data_end - conn->incoming_buffer.data_begin;
-    if (incomming_buffer_size < 4)
+    size_t incoming_buffer_size = conn->incoming_buffer.data_end - conn->incoming_buffer.data_begin;
+    if (incoming_buffer_size < 4)
     {
         return false;
     }
+
     uint32_t len = 0;
     memcpy(&len, conn->incoming_buffer.data_begin, 4);
+
     if (len > k_max_msg)
     {
         msg("too long");
         conn->want_close = true;
         return false;
     }
-    if (4 + len > incomming_buffer_size)
+
+    if (4 + len > incoming_buffer_size)
     {
         return false;
     }
+
+    const uint8_t *request = &conn->incoming_buffer.data_begin[4];
+
+    printf("bulk request item: len:%d data:%.*s\n",
+           len, len < 100 ? len : 100, request);
+
+    appendToNewBuffer(&conn->outgoing_buffer, (const uint8_t *)&len, 4);
+    appendToNewBuffer(&conn->outgoing_buffer, request, len);
+
+    consumeNewBuffer(&conn->incoming_buffer, 4 + len);
+    return true;
+}
+
+static bool try_one_request(Connection *conn)
+{
+    size_t incoming_buffer_size = conn->incoming_buffer.data_end - conn->incoming_buffer.data_begin;
+    if (incoming_buffer_size < 4)
+    {
+        return false;
+    }
+
+    uint32_t len = 0;
+    memcpy(&len, conn->incoming_buffer.data_begin, 4);
+
+    // Check if this is a bulk request
+    if (len == BULK_REQUEST_MARKER)
+    {
+        // Need at least 8 bytes (marker + num_requests)
+        if (incoming_buffer_size < 8)
+        {
+            return false;
+        }
+
+        // Get number of requests in the bulk
+        uint32_t num_requests = 0;
+        memcpy(&num_requests, conn->incoming_buffer.data_begin + 4, 4);
+
+        // Validate number of requests (add reasonable limit)
+        if (num_requests > 1000) // Arbitrary limit
+        {
+            msg("Too many requests in bulk");
+            conn->want_close = true;
+            return false;
+        }
+
+        printf("Received bulk request with %u requests\n", num_requests);
+
+        // Skip the marker and num_requests fields
+        consumeNewBuffer(&conn->incoming_buffer, 8);
+
+        // Process each request in the bulk
+        bool all_processed = true;
+        for (uint32_t i = 0; i < num_requests; i++)
+        {
+            // Process individual request
+            if (!process_individual_request(conn))
+            {
+                all_processed = false;
+                break;
+            }
+        }
+
+        return all_processed;
+    }
+
+    // Handle regular (non-bulk) request
+    if (len > k_max_msg)
+    {
+        msg("too long");
+        conn->want_close = true;
+        return false;
+    }
+
+    if (4 + len > incoming_buffer_size)
+    {
+        return false;
+    }
+
     const uint8_t *request = &conn->incoming_buffer.data_begin[4];
 
     printf("client says: len:%d data:%.*s\n",
